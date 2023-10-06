@@ -28,6 +28,8 @@ class Wplms_TutorLms_Migration_Init{
 
 			add_action('wp_ajax_migration_wp_tl_course_to_wplms',array($this,'migration_wp_tl_course_to_wplms'));
             add_action('wp_ajax_dismiss_message',array($this,'dismiss_message'));
+
+            add_action('wp_ajax_endTutorLmsMigration',[$this,'endTutorLmsMigration']);
 		}
     }
 
@@ -36,7 +38,7 @@ class Wplms_TutorLms_Migration_Init{
         if(!empty($this->migration_status)){
             ?>
             <div id="migration_tutorlms_courses_revert" class="update-nag notice ">
-               <p id="revert_message"><?php printf( __('TutorLMS Courses migrated to WPLMS: Want to revert changes %s ', 'wplms-ldm' ),'</a><a id="dismiss_message" href=""><i class="fa fa-times-circle-o"></i>Dismiss</a>'); ?>
+               <p id="revert_message"><?php printf( __('TutorLMS Courses migrated to WPLMS: Want to revert changes %s ', 'wplms-tutorlms-migration' ),'</a><a id="dismiss_message" href=""><i class="fa fa-times-circle-o"></i>Dismiss</a>'); ?>
                </p>
             </div>
            <?php
@@ -69,7 +71,7 @@ class Wplms_TutorLms_Migration_Init{
     	if(empty($this->migration_status) && $check){
     		?>
     		<div id="migration_tutorlms_courses" class="error notice ">
-		       <p id="ldm_message"><?php printf( __('Migrate Learndash coruses to WPLMS %s Begin Migration Now %s', 'wplms-ldm' ),'<a id="begin_wplms_tutorlms_migration" class="button primary">','</a>'); ?>
+		       <p id="ldm_message"><?php printf( __('Migrate Learndash coruses to WPLMS %s Begin Migration Now %s', 'wplms-tutorlms-migration' ),'<a id="begin_wplms_tutorlms_migration" class="button primary">','</a>'); ?>
 		       	
 		       </p>
 		   <?php wp_nonce_field('security','security'); ?>
@@ -89,7 +91,22 @@ class Wplms_TutorLms_Migration_Init{
 			                    success: function (json) {
 
 			                    	$('#migration_tutorlms_courses').append('<div class="wplms_tutorlms_progress" style="width:100%;margin-bottom:20px;height:10px;background:#fafafa;border-radius:10px;overflow:hidden;"><div class="bar" style="padding:0 1px;background:#37cc0f;height:100%;width:0;"></div></div>');
+                                    endCall = ()=>{
+                                        $.ajax({
+                                            type: "POST",
+                                            dataType: 'json',
+                                            url: ajaxurl,
+                                            data: {
+                                                action:'endTutorLmsMigration', 
+                                                security: $('#security').val(),
+                                            },
+                                            cache: false,
+                                            success: function (html) {
 
+                                            }
+                                        });
+                                        
+                                    }
 			                    	var x = 0;
 			                    	var width = 100*1/json.length;
 			                    	var number = 0;
@@ -99,6 +116,9 @@ class Wplms_TutorLms_Migration_Init{
 									        if(x < arr.length) {
 									         	loopArray(arr);   
 									        }
+                                            if(x===(arr.length-1)){
+                                                endCall();
+                                            }
 									    }); 
 									}
 									
@@ -123,7 +143,7 @@ class Wplms_TutorLms_Migration_Init{
 						                    	if(number >= 100){
                                                     $('#migration_tutorlms_courses').removeClass('error');
                                                     $('#migration_tutorlms_courses').addClass('updated');
-                                                    $('#ldm_message').html('<strong>'+x+' '+'<?php _e('Courses successfully migrated from Learndash to WPLMS','wplms-ldm'); ?>'+'</strong>');
+                                                    $('#ldm_message').html('<strong>'+x+' '+'<?php _e('Courses successfully migrated from Learndash to WPLMS','wplms-tutorlms-migration'); ?>'+'</strong>');
 										        }
 						                    }
 				                    	});
@@ -142,7 +162,7 @@ class Wplms_TutorLms_Migration_Init{
 
     function migration_wp_tl_courses(){
     	if ( !isset($_POST['security']) || !wp_verify_nonce($_POST['security'],'security') || !is_user_logged_in()){
-         	_e('Security check Failed. Contact Administrator.','wplms-ldm');
+         	_e('Security check Failed. Contact Administrator.','wplms-tutorlms-migration');
          	die();
       	}
 
@@ -162,7 +182,7 @@ class Wplms_TutorLms_Migration_Init{
 
     function dismiss_message(){
         if ( !isset($_POST['security']) || !wp_verify_nonce($_POST['security'],'security') || !is_user_logged_in()){
-            _e('Security check Failed. Contact Administrator.','wplms-ldm');
+            _e('Security check Failed. Contact Administrator.','wplms-tutorlms-migration');
             die();
         }
         update_option('wplms_tutorlms_migration_reverted',1);
@@ -179,12 +199,13 @@ class Wplms_TutorLms_Migration_Init{
     	$wpdb->query("UPDATE {$wpdb->posts} SET post_type = 'course' WHERE post_type = 'courses'");
     	$wpdb->query("UPDATE {$wpdb->posts} SET post_type = 'unit' WHERE post_type = 'lesson'");
         $wpdb->query("UPDATE {$wpdb->posts} SET post_type = 'quiz' WHERE post_type = 'tutor_quiz'");
-
+        
+        $wpdb->query("UPDATE {$wpdb->term_taxonomy} SET taxonomy = 'course-cat' WHERE taxonomy = 'course-category'");
     }
 
     function migration_wp_tl_course_to_wplms(){
     	if ( !isset($_POST['security']) || !wp_verify_nonce($_POST['security'],'security') || !is_user_logged_in()){
-         	_e('Security check Failed. Contact Administrator.','wplms-ldm');
+         	_e('Security check Failed. Contact Administrator.','wplms-tutorlms-migration');
          	die();
       	}
 
@@ -203,18 +224,12 @@ class Wplms_TutorLms_Migration_Init{
     	$duration = get_post_meta($course_id,'_course_duration',true);
     	if(!empty($duration)){
     		
-			$seconds = 0;
-			if(!empty($duration['hours'])){
-				$seconds = intval($duration['hours'])*3600;
-			}
-			if(!empty($duration['minutes'])){
-				$seconds = intval($duration['minutes'])*60;
-			}
-			if(!empty($duration['seconds'])){
-				$seconds = intval($duration['seconds'])*60;
-			}
-			update_post_meta($course_id,'vibe_duration',floor($seconds/3600));
-			update_post_meta($course_id,'vibe_duration_parameter',3600);
+			$seconds = $this->get_seconds_from_duration($duration);
+            if(!empty($seconds)){
+                update_post_meta($course_id,'vibe_duration',floor($seconds/3600));
+                update_post_meta($course_id,'vibe_duration_parameter',3600);
+            }
+			
     		
     	}
     	$content_meta_array = ['_tutor_course_benefits','_tutor_course_requirements','_tutor_course_target_audience','_tutor_course_material_includes'];
@@ -225,7 +240,6 @@ class Wplms_TutorLms_Migration_Init{
     			$heading = str_replace('_tutor_', '', $ca);
     			$heading = str_replace('_', ' ', $heading);
     			$heading = ucfirst($heading);
-
     			$content .= '<br/><h3>'.$heading.'</h3><br/>'.$con;
     		}
     	}
@@ -237,297 +251,328 @@ class Wplms_TutorLms_Migration_Init{
     	$video = get_post_meta($course_id,'_video',true);
     	if(!empty($video) && !empty($video['source'])){
     		$new_video = [];
-    		if($video['source']=='html5'){
-
+    		if($video['source']=='html5' && !empty($video['source_video_id'])){
+                $new_video= ['type'=>'video','url'=>wp_get_attachment_url($video['source_video_id']),'id'=>$video['source_video_id']];
     		}
-    		if($video['source']=='youtube' || $video['source']=='vimeo'){
-
+    		if($video['source']=='youtube' || $video['source']=='vimeo' && !empty($video['source'.$video['source']])){
+                $new_video= ['type'=>$video['source'],'url'=>$video['source'.$video['source']]];
     		}
-    		if($video['source']=='embedded' ){
-    			
-    		}
+            if($video['source']=='external_url' && !empty($video['source_external_url'])){
+                $new_video= ['type'=>'video','url'=>$video['source_external_url']];
+            }
+            update_post_meta($course_id,'post_video',$new_video);
     	}
-    	
+        $level = get_post_meta($course_id,'_tutor_course_level',true);
+    	if(!empty($level)){
+            wp_set_object_terms( $course_id, $level, 'level' );
+        }
 
     	$this->course_id = $course_id;
-       
+        
     	
 		$this->build_curriculum($course_id);
     }
 
+    function get_seconds_from_duration($duration){
+        $seconds = 0;
+        if(!empty($duration['hours'])){
+            $seconds += intval($duration['hours'])*3600;
+        }
+        if(!empty($duration['minutes'])){
+            $seconds += intval($duration['minutes'])*60;
+        }
+        if(!empty($duration['seconds'])){
+            $seconds += intval($duration['seconds']);
+        }
+        return $seconds;
+    }
+
     function build_curriculum($course_id){
     	global $wpdb;
-    	$orderby = 'menu_order';
-    	
-
-    	$order = 'DESC';
-    	if(!empty($this->unit_order)){
-    		$order = $this->unit_order;
-    	}
-    	$this->unit_order_by; $this->unit_order;
-
-    	$lessons_topics_quizzes = $wpdb->get_results("SELECT DISTINCT m.post_id as id,p.post_type as type,p.post_title as title, p.$orderby FROM {$wpdb->postmeta} as m LEFT JOIN {$wpdb->posts} as p ON p.id = m.post_id WHERE m.meta_value = $course_id AND m.meta_key = 'course_id' ORDER BY p.$orderby $order");
-
+    	$lessons_topics_quizzes = $wpdb->get_results("SELECT post_title as title,ID as id, post_type as type FROM {$wpdb->posts} WHERE post_parent={$course_id}");
     	if(!empty($lessons_topics_quizzes)){
     		foreach($lessons_topics_quizzes as $unit){
     			switch($unit->type){
     				case 'unit':
                         $this->migrate_unit_settings($unit->id);
-    					$after_unit = get_post_meta($unit->id,'lesson_id',true);
-                        if(!empty($after_unit)){
-                            //Course TOPIC UNIT 
-                            $unit_key = array_search($after_unit,$curriculum);
-                            if($unit_key !== false){
-                                array_splice( $curriculum, ($unit_key+1), 0, $unit->id );
-                            }else{
-                                if(empty($this->store_units[$after_unit])){
-                                    $this->store_units[$after_unit] = array($unit->id);    
-                                }else{
-                                    $this->store_units[$after_unit][] = $unit->id; 
-                                }
-                            }
-                            
-                        }else{
-                            /*
-                            LESSON UNIT ID; unit ID is LESSON ID
-                            */
-                            $curriculum[] = $unit->title;
-                            $curriculum[] = $unit->id;
-                        }
+    					
+                           
+                        $curriculum[] = $unit->title;
+                        $curriculum[] = $unit->id;
+                        
     				break;
     				case 'quiz':
-                    /* $unit->id = $quiz_id */
-                        $after_unit = get_post_meta($unit->id,'lesson_id',true);
-                        if(!empty($after_unit)){
-                            $quiz_key = array_search($after_unit,$curriculum);
-                            if($quiz_key !== false){
-                                array_splice( $curriculum, ($quiz_key+1), 0, $unit->id );
-                            }else{
-                                if(empty($this->store_quiz[$after_unit])){
-                                    $this->store_quiz[$after_unit] = array($unit->id);    
-                                }else{
-                                    $this->store_quiz[$after_unit][] = $unit->id; 
-                                }
-                            }
-                            
-                        }else{
-                            $curriculum[] = $unit->id;
-                        }
+                    
+                        $curriculum[] = $unit->id;
+                       
                         
-                        $this->migrate_quiz_settings($unit->id);
-                        $this->migrate_questions($unit->id);
+                        $this->migrate_quiz_settings($unit->id,$course_id);
+                        $this->migrate_questions($unit->id,$course_id);
                         
     				break;
+                    case 'topics':
+                    
+                        $curriculum[] = $unit->title;
+                        $new_topic_description = [
+                            'title'=>sprintf(_x('%s description','','wplms-tutorlms-migration'),$unit->title),
+                            'post_content'=>get_post_field('post_content',$unit->id),
+                            'post_status'=>'publish'
+                        ];
+
+                        $topic_unit_id = wp_insert_post($new_topic_description);
+
+                        $curriculum[] = $topic_unit_id;
+                        
+                        
+                    break;
     			}
     		}
 
-            if(!empty($this->store_units)){
-                foreach($this->store_units as $parent_unit_id => $unit_ids){
-                    if(!empty($unit_ids)){
-                        $parent_unit_key = array_search($parent_unit_id,$curriculum);
-                        array_splice( $curriculum, ($parent_unit_key+1), 0, $unit_ids );
-                    }
-                }
-            }
-            if(!empty($this->store_quiz)){
-                foreach($this->store_quiz as $parent_quiz_id => $quiz_ids){
-                    if(!empty($quiz_ids)){
-                        $parent_quiz_key = array_search($parent_quiz_id,$curriculum);
-                        array_splice( $curriculum, ($parent_quiz_key+1), 0, $quiz_ids );
-                    }
-                }
-            }
-
     	}
     	update_post_meta($course_id,'vibe_course_curriculum',$curriculum);
-    	//we have to add topics as sectionand its description as unit next to section
-    	$wpdb->query("UPDATE {$wpdb->posts} SET post_type = 'unit' WHERE post_type = 'topics'");
+    	
     }
     
     function migrate_unit_settings($unit_id){
-        $settings = get_post_meta($unit_id,'_sfwd-topic',true);
-        if(!empty($settings)){
-            if(!empty($settings['sfwd-topic_forced_lesson_time'])){
-                update_post_meta($unit_id,'vibe_duration',$settings['sfwd-topic_forced_lesson_time']);
+        $attachments = get_post_meta($unit_id,'_tutor_attachments',true);
+        if(!empty($attachments)){
+            $new_attachments= [];
+            foreach ($attachments as $key => $at) {
+                $new_attachments[] = [
+                    'id'=>$at,
+                    'url'=>wp_get_attachment_url($at),
+                    'type'=>$this->get_attachment_type($at),
+                    'name'=>get_the_title($at),
+                ];
             }
+            update_post_meta($unit_id,'vibe_unit_attachments',$new_attachments);
         }
-
-        $settings = get_post_meta($unit_id,'_sfwd-lessons',true);
-        if(!empty($settings)){
-            if(!empty($settings['sfwd-lessons_forced_lesson_time'])){
-                update_post_meta($unit_id,'vibe_duration',$settings['sfwd-lessons_forced_lesson_time']);
+        $video = get_post_meta($unit_id,'_video',true);
+        if(!empty($video) && !empty($video['source'])){
+            $new_video = [];
+            if($video['source']=='html5' && !empty($video['source_video_id'])){
+                $new_video= ['type'=>'video','url'=>wp_get_attachment_url($video['source_video_id']),'id'=>$video['source_video_id']];
             }
-            if(!empty($settings['sfwd-lessons_visible_after_specific_date'])){
-                update_post_meta($unit_id,'vibe_access_date',$settings['sfwd-lessons_visible_after_specific_date']);
+            if($video['source']=='youtube' || $video['source']=='vimeo' && !empty($video['source'.$video['source']])){
+                $new_video= ['type'=>$video['source'],'url'=>$video['source'.$video['source']]];
             }
-        }
-    }
-
-    function migrate_quiz_settings($quiz_id){
-        global $wpdb;
-        $settings = get_post_meta($quiz_id,'_sfwd-quiz',true);
-        if(!empty($settings)){
-            if(!empty($settings['sfwd-quiz_course'])){
-                update_post_meta($quiz_id,'vibe_quiz_course',$settings['sfwd-quiz_course']);
+            if($video['source']=='external_url' && !empty($video['source_external_url'])){
+                $new_video= ['type'=>'video','url'=>$video['source_external_url']];
             }
-
-            if(!empty($settings['sfwd-quiz_repeats'])){
-                update_post_meta($quiz_id,'vibe_quiz_retakes',$settings['sfwd-quiz_repeats']);
+            if($video['source']=='shortcode' && !empty($video['source_shortcode'])){
+               
+                $my_post['ID'] = $unit_id;
+                $my_post['post_content'] = get_post_field('post_content',$unit_id).$video['source_shortcode'];
+                wp_update_post( $my_post );
             }
-
-            if(!empty($settings['sfwd-quiz_quiz_pro'])){
-                $new_quiz_id = $settings['sfwd-quiz_quiz_pro'];
-                $quizzes = $wpdb->get_results("SELECT result_text, time_limit, question_random FROM {$wpdb->prefix}wp_pro_quiz_master WHERE id = $new_quiz_id");
-
-                if(!empty($quizzes)){
-                    foreach($quizzes as $quiz){
-                        if(!empty($quiz->result_text)){
-                            update_post_meta($quiz_id,'vibe_quiz_message',$quiz->result_text);
-                        }
-                        if(!empty($quiz->time_limit)){
-                            update_post_meta($quiz_id,'vibe_duration',$quiz->time_limit);
-                        }else{
-                            update_post_meta($quiz_id,'vibe_duration',9999);
-                        }
-                        if(!empty($quiz->question_random)){
-                            update_post_meta($quiz_id,'vibe_quiz_random','S');
-                        }
-                    }
+            if(!empty($video['runtime'])){
+                $seconds = $this->get_seconds_from_duration($video['runtime']);
+                if(!empty($seconds)){
+                    update_post_meta($unit_id,'vibe_duration',floor($seconds/60));
+                    update_post_meta($unit_id,'vibe_duration_parameter',60);
                 }
             }
+            update_post_meta($unit_id,'post_video',$new_video);
         }
     }
 
-    function migrate_questions($quiz_id){
+    function get_attachment_type($post_id){
+
+          $type = get_post_mime_type($post_id);
+          switch ($type) {
+            case 'image/jpeg':
+            case 'image/png':
+            case 'image/gif':
+              return "image"; break;
+            case 'video/mpeg':
+            case 'video/mp4': 
+            case 'video/quicktime':
+              return "video"; break;
+            case 'text/csv':
+            case 'text/plain': 
+            case 'text/xml':
+              return "text"; break;
+            default:
+              return  "file";
+          }
+        
+    }
+
+    function migrate_quiz_settings($quiz_id,$course_id){
+        global $wpdb;
+        update_post_meta($quiz_id,'vibe_quiz_course',$course_id);
+        $settings = get_post_meta($quiz_id,'tutor_quiz_option',$course_id);
+        if(!empty($settings)){
+            if(!empty($settings['time_limit']) && !empty($settings['time_limit']['time_value'])){
+                update_post_meta($quiz_id,'vibe_duration',intval($settings['time_limit']['time_value']));
+                update_post_meta($quiz_id,'vibe_duration_parameter',$this->time_duration_string_to_int(intval($settings['time_limit']['time_type'])));
+            }
+            if(!empty($settings['attempts_allowed']) && !empty($settings['feedback_mode']) && $settings['feedback_mode']=='retry'){
+                update_post_meta($quiz_id,'vibe_quiz_retakes',intval($settings['attempts_allowed']));
+            }
+            if($settings['passing_grade']){
+                //proccessed after setting questions
+                
+            }
+            
+        }
+        
+    }
+
+    function time_duration_string_to_int($duration_parameter_string){
+        switch($duration_parameter_string){
+            case 'days':
+                $duration_parameter = 86400;
+            break;
+            case 'years':
+                $duration_parameter = (365*86400);
+            break;
+            case 'months':
+                $duration_parameter =(30*86400);
+            break;
+            case 'weeks':
+                $duration_parameter = (7*86400);
+            break;
+            case 'minutes':
+                $duration_parameter = 60;
+            break;
+            case 'seconds':
+                $duration_parameter = 1;
+            break;
+            default :
+                $duration_parameter = 1;
+            break;
+       }
+       return $duration_parameter;
+    }
+
+    function migrate_questions($quiz_id,$course_id){
         global $wpdb;
         $settings = get_post_meta($quiz_id,'_sfwd-quiz',true);
         if(!empty($settings)){
-            if(!empty($settings['sfwd-quiz_quiz_pro'])){
-                $ld_quiz_id = $settings['sfwd-quiz_quiz_pro'];
+            
+            $table = $wpdb->prefix.'tutor_quiz_questions';
+            $questions = $wpdb->get_results("SELECT * FROM {$table} WHERE quiz_id = $quiz_id");
+            $quiz_questions = array('ques'=>array(),'marks'=>array());
+            if(!empty($questions)){
+                foreach($questions as $question){
+                    $args = array(
+                        'post_type'=>'question',
+                        'post_status'=>'publish',
+                        'post_title'=>$question->question_title,
+                        'post_content'=>$question->question_description
+                    );
+                    $question_id = wp_insert_post($args);
 
-                $questions = $wpdb->get_results("SELECT title, points, question, correct_msg, tip_enabled, tip_msg, answer_type, answer_data FROM {$wpdb->prefix}wp_pro_quiz_question WHERE quiz_id = $ld_quiz_id");
-                $quiz_questions = array('ques'=>array(),'marks'=>array());
-                if(!empty($questions)){
-                    foreach($questions as $question){
-                        $args = array(
-                            'post_type'=>'question',
-                            'post_status'=>'publish',
-                            'post_title'=>$question->title,
-                            'post_content'=>$question->question
-                        );
-                        $question_id = wp_insert_post($args);
-                        $quiz_questions['ques'][]=$question_id;
-                        $quiz_questions['marks'][]=$question->points;
 
-                        if($question->tip_enabled){
-                            if(!empty($question->tip_msg))
-                                update_post_meta($question_id,'vibe_question_hint',$question->question_answer_hint);
+                    $quiz_questions['ques'][]=$question_id;
+                    $quiz_questions['marks'][]=$question->question_mark;
+
+                    if(!empty($question->answer_explanation)){
+                            update_post_meta($question_id,'vibe_question_explaination',$question->answer_explanation);
+                    }
+
+                    if($question->answer_type == 'free_answer')
+                        $question->answer_type = 'largetext';
+                    if($question->answer_type == 'sort_answer')
+                        $question->answer_type = 'sort';
+                    if($question->answer_type == 'matrix_sort_answer')
+                        $question->answer_type = 'match';
+                    if($question->answer_type == 'cloze_answer')
+                        $question->answer_type = 'fillblank';
+                    if($question->answer_type == 'assessment_answer')
+                        $question->answer_type = 'assessment';
+                    
+                    if($question->answer_type != 'largetext' && $question->answer_type != 'assessment' && $question->answer_type != 'fillblank'){
+                        $ans_data = unserialize($question->answer_data);
+
+                        if($question->answer_type == 'sort'){
+
+                            $opt_arr = Array();
+                            $ans_arr = Array();
+                            foreach($ans_data as $and => $data) {
+                                $options = $this->accessProtected($data, '_answer');
+                                $opt_arr[] =  $options;
+                                $ans_arr[] =  $and + 1;
+                            }
+                            $correct_answer = implode(',', $ans_arr);
+                            update_post_meta($question_id,'vibe_question_options',$opt_arr);
+                            update_post_meta($question_id,'vibe_question_answer',$correct_answer);
                         }
 
-                        if(!empty($question->correct_msg))
-                            update_post_meta($question_id,'vibe_question_explaination',$question->correct_msg);
+                        if($question->answer_type == 'match'){
+                            $opt_arr = Array();
+                            $ans_arr = Array();
+                            $ld_que_post_content = get_post_field('post_content',$question_id);
+                            update_post_meta($question_id,'ld_que_post_content',$ld_que_post_content);
+                            $content = $ld_que_post_content;
 
-                        if($question->answer_type == 'free_answer')
-                            $question->answer_type = 'largetext';
-                        if($question->answer_type == 'sort_answer')
-                            $question->answer_type = 'sort';
-                        if($question->answer_type == 'matrix_sort_answer')
-                            $question->answer_type = 'match';
-                        if($question->answer_type == 'cloze_answer')
-                            $question->answer_type = 'fillblank';
-                        if($question->answer_type == 'assessment_answer')
-                            $question->answer_type = 'assessment';
-                        
-                        if($question->answer_type != 'largetext' && $question->answer_type != 'assessment' && $question->answer_type != 'fillblank'){
-                            $ans_data = unserialize($question->answer_data);
-
-                            if($question->answer_type == 'sort'){
-
-                                $opt_arr = Array();
-                                $ans_arr = Array();
-                                foreach($ans_data as $and => $data) {
-                                    $options = $this->accessProtected($data, '_answer');
-                                    $opt_arr[] =  $options;
-                                    $ans_arr[] =  $and + 1;
-                                }
-                                $correct_answer = implode(',', $ans_arr);
-                                update_post_meta($question_id,'vibe_question_options',$opt_arr);
-                                update_post_meta($question_id,'vibe_question_answer',$correct_answer);
+                            $match_list = '<br />[match]<ul>';
+                            foreach($ans_data as $and => $data) {
+                                $match = $this->accessProtected($data, '_answer');
+                                $match_list .='<li>'.$match.'</li>';
+                                $matched_ans = $this->accessProtected($data, '_sortString');
+                                $opt_arr[] =  $matched_ans;
+                                $ans_arr[] =  $and + 1;
                             }
+                            $match_list .= '</ul>[/match]';
+                            $content .= $match_list;
+                            $post = array('ID' => $question_id,'post_content' => $content );
+                            wp_update_post($post,true);
 
-                            if($question->answer_type == 'match'){
-                                $opt_arr = Array();
-                                $ans_arr = Array();
-                                $ld_que_post_content = get_post_field('post_content',$question_id);
-                                update_post_meta($question_id,'ld_que_post_content',$ld_que_post_content);
-                                $content = $ld_que_post_content;
-
-                                $match_list = '<br />[match]<ul>';
-                                foreach($ans_data as $and => $data) {
-                                    $match = $this->accessProtected($data, '_answer');
-                                    $match_list .='<li>'.$match.'</li>';
-                                    $matched_ans = $this->accessProtected($data, '_sortString');
-                                    $opt_arr[] =  $matched_ans;
-                                    $ans_arr[] =  $and + 1;
-                                }
-                                $match_list .= '</ul>[/match]';
-                                $content .= $match_list;
-                                $post = array('ID' => $question_id,'post_content' => $content );
-                                wp_update_post($post,true);
-
-                                $correct_answer = implode(',', $ans_arr);
-                                update_post_meta($question_id,'vibe_question_options',$opt_arr);
-                                update_post_meta($question_id,'vibe_question_answer',$correct_answer);
-                            }
-
-                            if($question->answer_type == 'single' || $question->answer_type == 'multiple'){
-
-                                $opt_arr = Array();
-                                $ans_arr = Array();
-                                $ans_data = unserialize($question->answer_data);
-                                foreach($ans_data as $and => $data) {
-                                    $options = $this->accessProtected($data, '_answer');
-                                    $opt_arr[] =  $options;
-                                    $ans = $this->accessProtected($data, '_correct');
-                                    if($ans == 1) {
-                                        $ans_arr[] =  $and + 1;
-                                    }
-                                }
-                                $correct_answer = implode(',', $ans_arr);
-                                update_post_meta($question_id,'vibe_question_options',$opt_arr);
-                                update_post_meta($question_id,'vibe_question_answer',$correct_answer);
-                            }
+                            $correct_answer = implode(',', $ans_arr);
+                            update_post_meta($question_id,'vibe_question_options',$opt_arr);
+                            update_post_meta($question_id,'vibe_question_answer',$correct_answer);
                         }
 
-                        if($question->answer_type == 'fillblank'){
+                        if($question->answer_type == 'single' || $question->answer_type == 'multiple'){
+
                             $opt_arr = Array();
                             $ans_arr = Array();
                             $ans_data = unserialize($question->answer_data);
                             foreach($ans_data as $and => $data) {
-                                $que_content = $this->accessProtected($data, '_answer');
-                                preg_match_all('/{(.*)+}/', $que_content, $out);
-                                foreach ($out[0] as $key => $answer) {
-                                    $ans_arr[] = $answer;
+                                $options = $this->accessProtected($data, '_answer');
+                                $opt_arr[] =  $options;
+                                $ans = $this->accessProtected($data, '_correct');
+                                if($ans == 1) {
+                                    $ans_arr[] =  $and + 1;
                                 }
-                                $correct_answer = implode('|', $ans_arr);
-                                update_post_meta($question_id,'vibe_question_answer',$correct_answer);
-                                $q_content = preg_replace('/{(.*)+}/', '[fillblank]', $que_content);
-                                $ld_que_post_content = get_post_field('post_content',$question_id);
-                                update_post_meta($question_id,'ld_que_post_content',$ld_que_post_content);
-                                $content = $ld_que_post_content;
-
-                                $fill_blank = '<br />';
-                                $fill_blank .= $q_content;
-                                $content .= $fill_blank;
-                                $post = array('ID' => $question_id,'post_content' => $content );
-                                wp_update_post($post,true);
                             }
+                            $correct_answer = implode(',', $ans_arr);
+                            update_post_meta($question_id,'vibe_question_options',$opt_arr);
+                            update_post_meta($question_id,'vibe_question_answer',$correct_answer);
                         }
-                        update_post_meta($question_id,'vibe_question_type',$question->answer_type);
                     }
-                    update_post_meta($quiz_id,'vibe_quiz_questions',$quiz_questions);
+
+                    if($question->answer_type == 'fillblank'){
+                        $opt_arr = Array();
+                        $ans_arr = Array();
+                        $ans_data = unserialize($question->answer_data);
+                        foreach($ans_data as $and => $data) {
+                            $que_content = $this->accessProtected($data, '_answer');
+                            preg_match_all('/{(.*)+}/', $que_content, $out);
+                            foreach ($out[0] as $key => $answer) {
+                                $ans_arr[] = $answer;
+                            }
+                            $correct_answer = implode('|', $ans_arr);
+                            update_post_meta($question_id,'vibe_question_answer',$correct_answer);
+                            $q_content = preg_replace('/{(.*)+}/', '[fillblank]', $que_content);
+                            $ld_que_post_content = get_post_field('post_content',$question_id);
+                            update_post_meta($question_id,'ld_que_post_content',$ld_que_post_content);
+                            $content = $ld_que_post_content;
+
+                            $fill_blank = '<br />';
+                            $fill_blank .= $q_content;
+                            $content .= $fill_blank;
+                            $post = array('ID' => $question_id,'post_content' => $content );
+                            wp_update_post($post,true);
+                        }
+                    }
+                    update_post_meta($question_id,'vibe_question_type',$question->answer_type);
                 }
+                update_post_meta($quiz_id,'vibe_quiz_questions',$quiz_questions);
             }
+            
         }
     }
 
@@ -571,6 +616,15 @@ class Wplms_TutorLms_Migration_Init{
             if(!empty($thumbnail_id))
                 set_post_thumbnail($product_id,$thumbnail_id);
         }
+    }
+
+    function endTutorLmsMigration(){
+        if ( !isset($_POST['security']) || !wp_verify_nonce($_POST['security'],'security') || !is_user_logged_in()){
+            _e('Security check Failed. Contact Administrator.','wplms-tutorlms-migration');
+            die();
+        }
+        //we have to add topics as sectionand its description as unit next to section
+        $wpdb->query("UPDATE {$wpdb->posts} SET post_type = 'unit' WHERE post_type = 'topics'");
     }
 }
 
