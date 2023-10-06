@@ -266,9 +266,21 @@ class Wplms_TutorLms_Migration_Init{
     	if(!empty($level)){
             wp_set_object_terms( $course_id, $level, 'level' );
         }
+        $precourses = get_post_meta($course_id,'_tutor_course_prerequisites_ids',true);
+        if(!empty($precourses)){
+            
+            update_post_meta($course_id,'vibe_pre_course',$precourses);
+        }
 
+        $paid = get_post_meta($course_id,'_tutor_course_price_type',true);
+        $pid = get_post_meta($course_id,'_tutor_course_product_id',true);
+        if(!empty($paid) && $paid =='paid' && !empty($pid)){
+            
+            update_post_meta($course_id,'vibe_product',$pid);
+            update_post_meta($pid,'vibe_courses',[$course_id]);
+        }
     	$this->course_id = $course_id;
-        
+        //drip feed left
     	
 		$this->build_curriculum($course_id);
     }
@@ -412,7 +424,7 @@ class Wplms_TutorLms_Migration_Init{
             }
             if($settings['passing_grade']){
                 //proccessed after setting questions
-                
+
             }
             
         }
