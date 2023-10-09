@@ -199,6 +199,7 @@ class Wplms_TutorLms_Migration_Init{
     	$wpdb->query("UPDATE {$wpdb->posts} SET post_type = 'course' WHERE post_type = 'courses'");
     	$wpdb->query("UPDATE {$wpdb->posts} SET post_type = 'unit' WHERE post_type = 'lesson'");
         $wpdb->query("UPDATE {$wpdb->posts} SET post_type = 'quiz' WHERE post_type = 'tutor_quiz'");
+        $wpdb->query("UPDATE {$wpdb->posts} SET post_type = 'wplms-assignment' WHERE post_type = 'tutor_assignments'");
         
         $wpdb->query("UPDATE {$wpdb->term_taxonomy} SET taxonomy = 'course-cat' WHERE taxonomy = 'course-category'");
     }
@@ -301,46 +302,55 @@ class Wplms_TutorLms_Migration_Init{
 
     function build_curriculum($course_id){
     	global $wpdb;
-    	$lessons_topics_quizzes = $wpdb->get_results("SELECT post_title as title,ID as id, post_type as type FROM {$wpdb->posts} WHERE post_parent={$course_id}");
-    	if(!empty($lessons_topics_quizzes)){
-    		foreach($lessons_topics_quizzes as $unit){
-    			switch($unit->type){
-    				case 'unit':
-                        $this->migrate_unit_settings($unit->id);
-    					
-                           
-                        $curriculum[] = $unit->title;
-                        $curriculum[] = $unit->id;
-                        
-    				break;
-    				case 'quiz':
-                    
-                        $curriculum[] = $unit->id;
-                       
-                        
-                        $this->migrate_quiz_settings($unit->id,$course_id);
-                        $this->migrate_questions($unit->id,$course_id);
-                        
-    				break;
-                    case 'topics':
-                    
-                        $curriculum[] = $unit->title;
-                        $new_topic_description = [
-                            'title'=>sprintf(_x('%s description','','wplms-tutorlms-migration'),$unit->title),
-                            'post_content'=>get_post_field('post_content',$unit->id),
-                            'post_status'=>'publish'
-                        ];
+    	$topics = $wpdb->get_results("SELECT post_title as title,ID as id, post_type as type FROM {$wpdb->posts} WHERE post_parent={$course_id}");
+        
+        $curriculum=[];
+        foreach ($topics as $key => $topic) {
+            $curriculum[] = $topic->title;
+            $new_topic_description = [
+                'title'=>sprintf(_x('%s description','','wplms-tutorlms-migration'),$topic->title),
+                'post_content'=>get_post_field('post_content',$topic->id),
+                'post_status'=>'publish'
+            ];
 
-                        $topic_unit_id = wp_insert_post($new_topic_description);
+            $topic_unit_id = wp_insert_post($new_topic_description);
 
-                        $curriculum[] = $topic_unit_id;
-                        
-                        
-                    break;
-    			}
-    		}
+            $curriculum[] = $topic_unit_id;
 
-    	}
+
+            $lessons_topics_quizzes = $wpdb->get_results("SELECT post_title as title,ID as id, post_type as type FROM {$wpdb->posts} WHERE post_parent = $topic->ID ORDER BY menu_order DESC");
+
+            if(!empty($lessons_topics_quizzes)){
+                foreach($lessons_topics_quizzes as $unit){
+                    switch($unit->type){
+                        
+                        case 'quiz':
+                        
+                            $curriculum[] = $unit->id;
+                            $this->migrate_questions($unit->id,$course_id);
+                            
+                            $this->migrate_quiz_settings($unit->id,$course_id);
+                            
+                            
+                        break;
+                        case 'wplms-assignment':
+                            $curriculum[] = $unit->id;
+                            $this->migrate_assignment_settings($unit->id,$course_id);
+                        break;
+                        
+                        case 'unit':
+                        default:
+                            $this->migrate_unit_settings($unit->id);
+                            
+                               
+                            $curriculum[] = $unit->id;
+                            
+                        break;
+                    }
+                }
+            }
+            
+        }
     	update_post_meta($course_id,'vibe_course_curriculum',$curriculum);
     	
     }
@@ -381,7 +391,7 @@ class Wplms_TutorLms_Migration_Init{
                 $seconds = $this->get_seconds_from_duration($video['runtime']);
                 if(!empty($seconds)){
                     update_post_meta($unit_id,'vibe_duration',floor($seconds/60));
-                    update_post_meta($unit_id,'vibe_duration_parameter',60);
+                    update_post_meta($unit_id,'vibe_course_duration_parameter',60);
                 }
             }
             update_post_meta($unit_id,'post_video',$new_video);
@@ -413,18 +423,26 @@ class Wplms_TutorLms_Migration_Init{
     function migrate_quiz_settings($quiz_id,$course_id){
         global $wpdb;
         update_post_meta($quiz_id,'vibe_quiz_course',$course_id);
-        $settings = get_post_meta($quiz_id,'tutor_quiz_option',$course_id);
+        $settings = get_post_meta($quiz_id,'tutor_quiz_option',true);
         if(!empty($settings)){
             if(!empty($settings['time_limit']) && !empty($settings['time_limit']['time_value'])){
                 update_post_meta($quiz_id,'vibe_duration',intval($settings['time_limit']['time_value']));
-                update_post_meta($quiz_id,'vibe_duration_parameter',$this->time_duration_string_to_int(intval($settings['time_limit']['time_type'])));
+                update_post_meta($quiz_id,'vibe_quiz_duration_parameter',$this->time_duration_string_to_int(intval($settings['time_limit']['time_type'])));
             }
             if(!empty($settings['attempts_allowed']) && !empty($settings['feedback_mode']) && $settings['feedback_mode']=='retry'){
                 update_post_meta($quiz_id,'vibe_quiz_retakes',intval($settings['attempts_allowed']));
             }
-            if($settings['passing_grade']){
+            if(!empty($settings['passing_grade'])){
                 //proccessed after setting questions
-
+                $question_Details=get_post_meta($quiz_id,'vibe_quiz_questions',true);
+                if(!empty($question_Details) && !empty($question_Details['marks'])){
+                    $total = array_sum($question_Details['marks']);
+                    if (!empty($total)) {
+                        $passing_marks = floor(($settings['passing_grade']*$total)/100);
+                        update_post_meta($quiz_id,'vibe_quiz_passing_score',true);
+                    }
+                    
+                }
             }
             
         }
@@ -464,7 +482,7 @@ class Wplms_TutorLms_Migration_Init{
         if(!empty($settings)){
             
             $table = $wpdb->prefix.'tutor_quiz_questions';
-            $questions = $wpdb->get_results("SELECT * FROM {$table} WHERE quiz_id = $quiz_id");
+            $questions = $wpdb->get_results("SELECT * FROM {$table} WHERE quiz_id = $quiz_id ORDER BY question_order DESC");
             $quiz_questions = array('ques'=>array(),'marks'=>array());
             if(!empty($questions)){
                 foreach($questions as $question){
@@ -478,113 +496,101 @@ class Wplms_TutorLms_Migration_Init{
 
 
                     $quiz_questions['ques'][]=$question_id;
-                    $quiz_questions['marks'][]=$question->question_mark;
+                    $quiz_questions['marks'][]=intval($question->question_mark);
 
                     if(!empty($question->answer_explanation)){
-                            update_post_meta($question_id,'vibe_question_explaination',$question->answer_explanation);
+                        update_post_meta($question_id,'vibe_question_explaination',$question->answer_explanation);
                     }
+                    $type = '';
+                    switch ($question->answer_type) {
+                        case 'true_false':
+                            $type = 'truefalse';
 
-                    if($question->answer_type == 'free_answer')
-                        $question->answer_type = 'largetext';
-                    if($question->answer_type == 'sort_answer')
-                        $question->answer_type = 'sort';
-                    if($question->answer_type == 'matrix_sort_answer')
-                        $question->answer_type = 'match';
-                    if($question->answer_type == 'cloze_answer')
-                        $question->answer_type = 'fillblank';
-                    if($question->answer_type == 'assessment_answer')
-                        $question->answer_type = 'assessment';
+
+                            break;
+                        case 'single_choice':
+                            $type = 'single';
+                            break;
+                        case 'multiple_choice':
+                            $type = 'multiple';
+                            
+                            break;
+                        case 'open_ended':
+                        case 'short_answer':
+                            $type = 'largetext';
+                           
+                            break;
+
+                        case 'fill_in_the_blank':
+                            
+                            $type = 'fillblank';
+                            break;
+                        
+                        case 'matching':
+                            $type = 'match';
+                            
+                            break;
+                        case 'image_matching':
+                            $type = 'match';
+                            
+                            break;
+                        case 'image_answering':
+                            $type = 'smalltext';
+                            
+                            break;
+                        case 'ordering':
+                            
+                            $type = 'sort';
+                            break;
+                    }
                     
-                    if($question->answer_type != 'largetext' && $question->answer_type != 'assessment' && $question->answer_type != 'fillblank'){
-                        $ans_data = unserialize($question->answer_data);
-
-                        if($question->answer_type == 'sort'){
-
-                            $opt_arr = Array();
-                            $ans_arr = Array();
-                            foreach($ans_data as $and => $data) {
-                                $options = $this->accessProtected($data, '_answer');
-                                $opt_arr[] =  $options;
-                                $ans_arr[] =  $and + 1;
-                            }
-                            $correct_answer = implode(',', $ans_arr);
-                            update_post_meta($question_id,'vibe_question_options',$opt_arr);
-                            update_post_meta($question_id,'vibe_question_answer',$correct_answer);
-                        }
-
-                        if($question->answer_type == 'match'){
-                            $opt_arr = Array();
-                            $ans_arr = Array();
-                            $ld_que_post_content = get_post_field('post_content',$question_id);
-                            update_post_meta($question_id,'ld_que_post_content',$ld_que_post_content);
-                            $content = $ld_que_post_content;
-
-                            $match_list = '<br />[match]<ul>';
-                            foreach($ans_data as $and => $data) {
-                                $match = $this->accessProtected($data, '_answer');
-                                $match_list .='<li>'.$match.'</li>';
-                                $matched_ans = $this->accessProtected($data, '_sortString');
-                                $opt_arr[] =  $matched_ans;
-                                $ans_arr[] =  $and + 1;
-                            }
-                            $match_list .= '</ul>[/match]';
-                            $content .= $match_list;
-                            $post = array('ID' => $question_id,'post_content' => $content );
-                            wp_update_post($post,true);
-
-                            $correct_answer = implode(',', $ans_arr);
-                            update_post_meta($question_id,'vibe_question_options',$opt_arr);
-                            update_post_meta($question_id,'vibe_question_answer',$correct_answer);
-                        }
-
-                        if($question->answer_type == 'single' || $question->answer_type == 'multiple'){
-
-                            $opt_arr = Array();
-                            $ans_arr = Array();
-                            $ans_data = unserialize($question->answer_data);
-                            foreach($ans_data as $and => $data) {
-                                $options = $this->accessProtected($data, '_answer');
-                                $opt_arr[] =  $options;
-                                $ans = $this->accessProtected($data, '_correct');
-                                if($ans == 1) {
-                                    $ans_arr[] =  $and + 1;
-                                }
-                            }
-                            $correct_answer = implode(',', $ans_arr);
-                            update_post_meta($question_id,'vibe_question_options',$opt_arr);
-                            update_post_meta($question_id,'vibe_question_answer',$correct_answer);
-                        }
-                    }
-
-                    if($question->answer_type == 'fillblank'){
-                        $opt_arr = Array();
-                        $ans_arr = Array();
-                        $ans_data = unserialize($question->answer_data);
-                        foreach($ans_data as $and => $data) {
-                            $que_content = $this->accessProtected($data, '_answer');
-                            preg_match_all('/{(.*)+}/', $que_content, $out);
-                            foreach ($out[0] as $key => $answer) {
-                                $ans_arr[] = $answer;
-                            }
-                            $correct_answer = implode('|', $ans_arr);
-                            update_post_meta($question_id,'vibe_question_answer',$correct_answer);
-                            $q_content = preg_replace('/{(.*)+}/', '[fillblank]', $que_content);
-                            $ld_que_post_content = get_post_field('post_content',$question_id);
-                            update_post_meta($question_id,'ld_que_post_content',$ld_que_post_content);
-                            $content = $ld_que_post_content;
-
-                            $fill_blank = '<br />';
-                            $fill_blank .= $q_content;
-                            $content .= $fill_blank;
-                            $post = array('ID' => $question_id,'post_content' => $content );
-                            wp_update_post($post,true);
-                        }
-                    }
                     update_post_meta($question_id,'vibe_question_type',$question->answer_type);
                 }
                 update_post_meta($quiz_id,'vibe_quiz_questions',$quiz_questions);
             }
             
+        }
+    }
+
+    function migrate_assignment_settings($unit_id,$course_id){
+        global $wpdb;
+        update_post_meta($quiz_id,'vibe_assignment_course',$course_id);
+        $settings = get_post_meta($unit_id,'assignment_option',true);
+        if(!empty($settings)){
+            if(!empty($settings['time_duration']) && !empty($settings['time_duration']['value'])){
+                update_post_meta($unit_id,'vibe_assignment_duration',intval($settings['time_duration']['value']));
+                update_post_meta($unit_id,'vibe_assignment_duration_parameter',$this->time_duration_string_to_int($settings['time_duration']['time']));
+            }
+            if(!empty($settings['total_mark'])){
+                update_post_meta($unit_id,'vibe_assignment_marks',$settings['total_mark']);
+            }
+            if(!empty($settings['upload_file_size_limit'])){
+                update_post_meta($unit_id,'vibe_attachment_size',$settings['upload_file_size_limit']);
+            }
+            
+            update_post_meta($unit_id,'vibe_attachment_size',array (
+              'JPG',
+              'GIF',
+               'PNG',
+              'PDF',
+              'DOCX',
+              'DOC',
+            ));
+
+            $atts = get_post_meta($unit_id,'_tutor_assignment_attachments',true);
+            if(!empty($atts)){
+                $atts_urls = [];
+                foreach ($atts as $key => $at) {
+                   
+                    $atts_urls[]= '<br/><a href="'.wp_get_attachment_url($at).'">'._x('Attachment','','wplms-tutorlms-migration').' '.$key.' </a>';
+                    
+                }
+                $atts_urls = implode(',', $atts_urls);
+                $my_post['ID'] = $unit_id;
+
+                $my_post['post_content'] = get_post_field('post_content',$unit_id).$atts_urls;
+                wp_update_post( $my_post );
+            }
         }
     }
 
