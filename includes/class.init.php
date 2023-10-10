@@ -38,7 +38,7 @@ class Wplms_TutorLms_Migration_Init{
         if(!empty($this->migration_status)){
             ?>
             <div id="migration_tutorlms_courses_revert" class="update-nag notice ">
-               <p id="revert_message"><?php printf( __('TutorLMS Courses migrated to WPLMS: Want to revert changes %s ', 'wplms-tutorlms-migration' ),'</a><a id="dismiss_message" href=""><i class="fa fa-times-circle-o"></i>Dismiss</a>'); ?>
+               <p id="revert_message"><?php printf( __('TutorLMS Courses migrated to WPLMS: %s ', 'wplms-tutorlms-migration' ),'</a><a id="dismiss_message" href=""><i class="fa fa-times-circle-o"></i>Dismiss</a>'); ?>
                </p>
             </div>
            <?php
@@ -49,12 +49,12 @@ class Wplms_TutorLms_Migration_Init{
         if(!function_exists('woocommerce')){
             $check = 0;
             ?>
-            <div class="welcome-panel" id="welcome_ld_panel" style="padding-bottom:20px;width:96%">
+            <div class="welcome-panel" id="welcome_ld_panel" style="padding-bottom:20px;width:96%;background:#ffffff !important;padding:1rem">
                 <h1><?php echo __('Please note the following before starting migration:','wplms-lp'); ?></h1>
                 <ol>
                     <li><?php echo __('Woocommerce must be activated if using paid courses.','wplms-lp'); ?></li>
-                    <li><?php echo __('WPLMS vibe custom types plugin must be activated.','wplms-lp'); ?></li>
-                    <li><?php echo __('WPLMS vibe course module plugin must be activated.','wplms-lp'); ?></li>
+                    <li><?php echo __('Vibebp must be activated.','wplms-lp'); ?></li>
+                    <li><?php echo __('WPLMS plugin must be activated.','wplms-lp'); ?></li>
                 </ol>
                 <p><?php echo __('If all the above plugins are activated then please click on the button below to proceed to migration proccess','wplms-lp'); ?></p>
                 <form method="POST">
@@ -71,7 +71,7 @@ class Wplms_TutorLms_Migration_Init{
     	if(empty($this->migration_status) && $check){
     		?>
     		<div id="migration_tutorlms_courses" class="error notice ">
-		       <p id="ldm_message"><?php printf( __('Migrate Learndash coruses to WPLMS %s Begin Migration Now %s', 'wplms-tutorlms-migration' ),'<a id="begin_wplms_tutorlms_migration" class="button primary">','</a>'); ?>
+		       <p id="ldm_message"><?php printf( __('Migrate tutorlms coruses to WPLMS %s Begin Migration Now %s', 'wplms-tutorlms-migration' ),'<a id="begin_wplms_tutorlms_migration" class="button primary">','</a>'); ?>
 		       	
 		       </p>
 		   <?php wp_nonce_field('security','security'); ?>
@@ -143,7 +143,7 @@ class Wplms_TutorLms_Migration_Init{
 						                    	if(number >= 100){
                                                     $('#migration_tutorlms_courses').removeClass('error');
                                                     $('#migration_tutorlms_courses').addClass('updated');
-                                                    $('#ldm_message').html('<strong>'+x+' '+'<?php _e('Courses successfully migrated from Learndash to WPLMS','wplms-tutorlms-migration'); ?>'+'</strong>');
+                                                    $('#ldm_message').html('<strong>'+x+' '+'<?php _e('Courses successfully migrated from tutorlms to WPLMS','wplms-tutorlms-migration'); ?>'+'</strong>');
 										        }
 						                    }
 				                    	});
@@ -167,7 +167,7 @@ class Wplms_TutorLms_Migration_Init{
       	}
 
       	global $wpdb;
-		$courses = $wpdb->get_results("SELECT id,post_title FROM {$wpdb->posts} where post_type='courses'");
+		$courses = $wpdb->get_results("SELECT id,post_title FROM {$wpdb->posts} where post_type='courses' AND post_status!='auto-draft'");
 		$json=array();
 		foreach($courses as $course){
 			$json[]=array('id'=>$course->id,'title'=>$course->post_title);
@@ -279,6 +279,12 @@ class Wplms_TutorLms_Migration_Init{
             
             update_post_meta($course_id,'vibe_product',$pid);
             update_post_meta($pid,'vibe_courses',[$course_id]);
+            $thumbnail_id = get_post_thumbnail_id($course_id);
+            if(!empty($thumbnail_id))
+                set_post_thumbnail($product_id,$thumbnail_id);
+        }
+        if($paid=='free'){
+            update_post_meta($course_id,'vibe_course_free','S');
         }
     	$this->course_id = $course_id;
         //drip feed left
@@ -302,23 +308,26 @@ class Wplms_TutorLms_Migration_Init{
 
     function build_curriculum($course_id){
     	global $wpdb;
-    	$topics = $wpdb->get_results("SELECT post_title as title,ID as id, post_type as type FROM {$wpdb->posts} WHERE post_parent={$course_id}");
-        
+    	$topics = $wpdb->get_results("SELECT post_title as title,ID as id, post_type as type FROM {$wpdb->posts} WHERE post_parent={$course_id} AND post_type='topics' ORDER BY menu_order ASC");
         $curriculum=[];
         foreach ($topics as $key => $topic) {
             $curriculum[] = $topic->title;
-            $new_topic_description = [
-                'title'=>sprintf(_x('%s description','','wplms-tutorlms-migration'),$topic->title),
-                'post_content'=>get_post_field('post_content',$topic->id),
-                'post_status'=>'publish'
-            ];
+            $topic_desc =get_post_field('post_content',$topic->id);
+            if(!empty($topic_desc)){
+                $new_topic_description = [
+                    'post_title'=>sprintf(_x('%s description','','wplms-tutorlms-migration'),$topic->title),
+                    'post_content'=>$topic_desc,
+                    'post_status'=>'publish'
+                ];
 
-            $topic_unit_id = wp_insert_post($new_topic_description);
+                $topic_unit_id = wp_insert_post($new_topic_description);
 
-            $curriculum[] = $topic_unit_id;
+                $curriculum[] = $topic_unit_id;
+            }
+            
+            $topid_id= $topic->id;
 
-
-            $lessons_topics_quizzes = $wpdb->get_results("SELECT post_title as title,ID as id, post_type as type FROM {$wpdb->posts} WHERE post_parent = $topic->ID ORDER BY menu_order DESC");
+            $lessons_topics_quizzes = $wpdb->get_results("SELECT post_title as title,ID as id, post_type as type FROM {$wpdb->posts} WHERE post_parent = {$topid_id} ORDER BY menu_order ASC");
 
             if(!empty($lessons_topics_quizzes)){
                 foreach($lessons_topics_quizzes as $unit){
@@ -391,10 +400,11 @@ class Wplms_TutorLms_Migration_Init{
                 $seconds = $this->get_seconds_from_duration($video['runtime']);
                 if(!empty($seconds)){
                     update_post_meta($unit_id,'vibe_duration',floor($seconds/60));
-                    update_post_meta($unit_id,'vibe_course_duration_parameter',60);
+                    update_post_meta($unit_id,'vibe_unit_duration_parameter',60);
                 }
             }
             update_post_meta($unit_id,'post_video',$new_video);
+            update_post_meta($unit_id,'vibe_type','video');
         }
     }
 
@@ -423,6 +433,8 @@ class Wplms_TutorLms_Migration_Init{
     function migrate_quiz_settings($quiz_id,$course_id){
         global $wpdb;
         update_post_meta($quiz_id,'vibe_quiz_course',$course_id);
+        update_post_meta($quiz_id,'vibe_quiz_auto_evaluate','S');
+        update_post_meta($quiz_id,'vibe_question_number_react',1);
         $settings = get_post_meta($quiz_id,'tutor_quiz_option',true);
         if(!empty($settings)){
             if(!empty($settings['time_limit']) && !empty($settings['time_limit']['time_value'])){
@@ -450,6 +462,7 @@ class Wplms_TutorLms_Migration_Init{
     }
 
     function time_duration_string_to_int($duration_parameter_string){
+        print_R($duration_parameter_string);
         switch($duration_parameter_string){
             case 'days':
                 $duration_parameter = 86400;
@@ -478,83 +491,294 @@ class Wplms_TutorLms_Migration_Init{
 
     function migrate_questions($quiz_id,$course_id){
         global $wpdb;
-        $settings = get_post_meta($quiz_id,'_sfwd-quiz',true);
-        if(!empty($settings)){
-            
-            $table = $wpdb->prefix.'tutor_quiz_questions';
-            $questions = $wpdb->get_results("SELECT * FROM {$table} WHERE quiz_id = $quiz_id ORDER BY question_order DESC");
-            $quiz_questions = array('ques'=>array(),'marks'=>array());
-            if(!empty($questions)){
-                foreach($questions as $question){
-                    $args = array(
-                        'post_type'=>'question',
-                        'post_status'=>'publish',
-                        'post_title'=>$question->question_title,
-                        'post_content'=>$question->question_description
-                    );
-                    $question_id = wp_insert_post($args);
-
-
-                    $quiz_questions['ques'][]=$question_id;
-                    $quiz_questions['marks'][]=intval($question->question_mark);
-
-                    if(!empty($question->answer_explanation)){
-                        update_post_meta($question_id,'vibe_question_explaination',$question->answer_explanation);
-                    }
-                    $type = '';
-                    switch ($question->answer_type) {
-                        case 'true_false':
-                            $type = 'truefalse';
-
-
-                            break;
-                        case 'single_choice':
-                            $type = 'single';
-                            break;
-                        case 'multiple_choice':
-                            $type = 'multiple';
-                            
-                            break;
-                        case 'open_ended':
-                        case 'short_answer':
-                            $type = 'largetext';
-                           
-                            break;
-
-                        case 'fill_in_the_blank':
-                            
-                            $type = 'fillblank';
-                            break;
-                        
-                        case 'matching':
-                            $type = 'match';
-                            
-                            break;
-                        case 'image_matching':
-                            $type = 'match';
-                            
-                            break;
-                        case 'image_answering':
-                            $type = 'smalltext';
-                            
-                            break;
-                        case 'ordering':
-                            
-                            $type = 'sort';
-                            break;
-                    }
-                    
-                    update_post_meta($question_id,'vibe_question_type',$question->answer_type);
+        $table = $wpdb->prefix.'tutor_quiz_questions';
+        $questions = $wpdb->get_results("SELECT * FROM {$table} WHERE quiz_id = $quiz_id ORDER BY question_order ASC");
+        $quiz_questions = array('ques'=>array(),'marks'=>array());
+        if(!empty($questions)){
+            foreach($questions as $question){
+                $args = array(
+                    'post_type'=>'question',
+                    'post_status'=>'publish',
+                    'post_title'=>$question->question_title,
+                    'post_author'=>get_current_user_id(),
+                    'post_content'=>$question->question_description
+                );
+                $question_id = wp_insert_post($args);
+                if(empty($question_id)){
+                    continue;
                 }
-                update_post_meta($quiz_id,'vibe_quiz_questions',$quiz_questions);
+
+                $quiz_questions['ques'][]=$question_id;
+                $quiz_questions['marks'][]=intval($question->question_mark);
+
+                if(!empty($question->answer_explanation)){
+                    update_post_meta($question_id,'vibe_question_explaination',$question->answer_explanation);
+                }
+                $type = '';
+                switch ($question->answer_type) {
+                    case 'true_false':
+                        $type = 'truefalse';
+                        $qid =$question->question_id;
+                        $table = $wpdb->prefix.'tutor_quiz_question_answers';
+                        $correct = $wpdb->get_var("SELECT answer_two_gap_match FROM {$table} WHERE belongs_question_id = {$qid} WHERE is_correct=1 AND belongs_to_question_type='true_false'");
+                        if(!empty($correct) && $correct=='true'){
+                            update_post_meta($question_id,'vibe_question_answer',1);
+                        }else{
+                            update_post_meta($question_id,'vibe_question_answer',0);
+                        }
+                        break;
+                    case 'single_choice':
+                        $type = 'single';
+                        $qid =$question->question_id;
+                        $table = $wpdb->prefix.'tutor_quiz_question_answers';
+                        $options = $wpdb->get_results("SELECT * FROM {$table} WHERE belongs_question_id = {$qid} WHERE belongs_to_question_type='single_choice' ORDER BY answer_order ASC");
+                        $new_options= [];
+                        $correct = 1;
+                        if(!empty($options) ){
+                            foreach ($options as $key => $option) {
+                                $answer_option = $option->answer_title;
+
+                                if(!empty($option->answer_view_format) && $option->answer_view_format=='text_image' && !empty($option->image_id)){
+                                    $url = wp_get_attachment_url($option->image_id);
+                                    if(!empty($url)){
+                                        $answer_option .= '<br/><img src="'.$url.'"/>';
+                                    }
+                                    
+                                }
+                                $new_options[] =   $answer_option;
+                                if(!empty($option->is_correct)){
+                                    $correct = $key+1;
+                                }
+                                
+                            }
+                        }
+                        update_post_meta($question_id,'vibe_question_options',$new_options);
+                        update_post_meta($question_id,'vibe_question_answer',$correct);
+                        break;
+                    case 'multiple_choice':
+                        $type = 'multiple';
+                        $qid =$question->question_id;
+                        $table = $wpdb->prefix.'tutor_quiz_question_answers';
+                        $options = $wpdb->get_results("SELECT * FROM {$table} WHERE belongs_question_id = {$qid} WHERE belongs_to_question_type='multiple_choice' ORDER BY answer_order ASC");
+                        $new_options= [];
+                        $correct = [];
+                        if(!empty($options) ){
+                            foreach ($options as $key => $option) {
+                                $answer_option = $option->answer_title;
+
+                                if(!empty($option->answer_view_format) && $option->answer_view_format=='text_image' && !empty($option->image_id)){
+                                    $url = wp_get_attachment_url($option->image_id);
+                                    if(!empty($url)){
+                                        $answer_option .= '<br/><img src="'.$url.'"/>';
+                                    }
+                                    
+                                }
+                                $new_options[] =   $answer_option;
+                                if(!empty($option->is_correct)){
+                                    $correct[] = $key+1;
+                                }
+                                
+                            }
+                        }
+                        update_post_meta($question_id,'vibe_question_options',$new_options);
+                        update_post_meta($question_id,'vibe_question_answer',implode(',', $correct));
+                        break;
+                    case 'open_ended':
+                    case 'short_answer':
+                        $type = 'largetext';
+                        break;
+                    case 'fill_in_the_blank':
+                        
+                        $type = 'fillblank';
+                        $qid =$question->question_id;
+                        $table = $wpdb->prefix.'tutor_quiz_question_answers';
+                        $options = $wpdb->get_results("SELECT * FROM {$table} WHERE belongs_question_id = {$qid} WHERE belongs_to_question_type='fill_in_the_blank' ORDER BY answer_order ASC");
+                        $new_statment= '';
+                        $correct = [];
+                        if(!empty($options) ){
+                            foreach ($options as $key => $option) {
+                                $answer_option = str_replace('{dash}', '[fillblank]',$option->answer_title );
+                                $answer_option = '<br/>'.$answer_option;
+                                
+                                $new_statment .=   $answer_option;
+                                $correct = $option->answer_two_gap_match;
+                                
+                            }
+                        }
+
+
+                        $my_post['ID'] = $question_id;
+
+                        $my_post['post_content'] = get_post_field('post_content',$question_id).$new_statment;
+                        wp_update_post( $my_post );
+                        update_post_meta($question_id,'vibe_question_answer',$correct);
+                        break;
+                    
+                    case 'matching':
+                        $type = 'match';
+                        $table = $wpdb->prefix.'tutor_quiz_question_answers';
+                        $qid =$question->question_id;
+                        $options = $wpdb->get_results("SELECT * FROM {$table} WHERE belongs_question_id = {$qid} WHERE belongs_to_question_type='matching' ORDER BY answer_order ASC");
+                        $new_options = [];
+                        $correct = [];
+                        $content_li = [];
+                        //options answer_two_gap_match
+                        //description li answer_title
+
+                        if(!empty($options) ){
+                            foreach ($options as $key => $option) {
+                                $answer_option = $option->answer_two_gap_match;
+
+                                if(!empty($option->answer_view_format) && $option->answer_view_format=='text_image' && !empty($option->image_id)){
+                                    $url = wp_get_attachment_url($option->image_id);
+                                    if(!empty($url)){
+                                        $answer_option .= '<br/><img src="'.$url.'"/>';
+                                    }
+                                    
+                                }
+                                $new_options[] =   $answer_option;
+                                
+                                $content_li[] = $option->answer_title;
+                                $correct[]=$key+1;
+                                
+                            }
+                        }
+                        update_post_meta($question_id,'vibe_question_options',$new_options);
+                        update_post_meta($question_id,'vibe_question_answer',implode(',', $correct));
+                        if(!empty($content_li)){
+                            $match_content = '<br/>[match]
+                            <ul>';
+                            
+                            foreach ($content_li as $key => $li) {
+                                $match_content .= ' <li>'.$li.'</li>';
+                            }
+                            $match_content .='</ul>
+                            [/match]';
+                        }
+                        $my_post['ID'] = $question_id;
+
+                        $my_post['post_content'] = get_post_field('post_content',$question_id).$match_content;
+                        wp_update_post( $my_post );
+
+                        break;
+                    case 'image_matching':
+                        $type = 'match';
+                        $table = $wpdb->prefix.'tutor_quiz_question_answers';
+                        $qid =$question->question_id;
+                        $options = $wpdb->get_results("SELECT * FROM {$table} WHERE belongs_question_id = {$qid} WHERE belongs_to_question_type='image_matching' ORDER BY answer_order ASC");
+                        $new_options = [];
+                        $correct = [];
+                        $content_li = [];
+                        //options answer_title
+                        //description li image_id
+
+                        if(!empty($options) ){
+                            foreach ($options as $key => $option) {
+                                $new_options[] = $option->answer_title;
+
+                                if(!empty($option->image_id)){
+                                    $url = wp_get_attachment_url($option->image_id);
+                                    if(!empty($url)){
+                                        $content_li[] = '<img src="'.$url.'"/>';
+                                    }
+                                    
+                                }
+                                
+                                $correct[]=$key+1;
+                                
+                            }
+                        }
+                        update_post_meta($question_id,'vibe_question_options',$new_options);
+                        update_post_meta($question_id,'vibe_question_answer',implode(',', $correct));
+                        if(!empty($content_li)){
+                            $match_content = '<br/>[match]
+                            <ul>';
+                            
+                            foreach ($content_li as $key => $li) {
+                                $match_content .= ' <li>'.$li.'</li>';
+                            }
+                            $match_content .='</ul>
+                            [/match]';
+                        }
+                        $my_post['ID'] = $question_id;
+
+                        $my_post['post_content'] = get_post_field('post_content',$question_id).$match_content;
+                        wp_update_post( $my_post );
+                        break;
+                    case 'image_answering':
+                        $type = 'smalltext';
+                        $table = $wpdb->prefix.'tutor_quiz_question_answers';
+                        $qid =$question->question_id;
+                        $options = $wpdb->get_results("SELECT * FROM {$table} WHERE belongs_question_id = {$qid} WHERE belongs_to_question_type='image_answering' ORDER BY answer_order ASC");
+                        $new_statment= '';
+                        $correct = [];
+                        if(!empty($options) ){
+                            foreach ($options as $key => $option) {
+                                if(!empty($option->image_id)){
+                                    $url = wp_get_attachment_url($option->image_id);
+                                    if(!empty($url)){
+                                        $new_statment .='<br/>'.$answer_option;
+                                    }
+                                }
+                                
+                                $correct = $option->answer_title;
+                                
+                            }
+                        }
+
+
+                        $my_post['ID'] = $question_id;
+
+                        $my_post['post_content'] = get_post_field('post_content',$question_id).$new_statment;
+                        wp_update_post( $my_post );
+                        update_post_meta($question_id,'vibe_question_answer',$correct);
+                        break;
+                    case 'ordering':
+                        
+                        $type = 'sort';
+                        $table = $wpdb->prefix.'tutor_quiz_question_answers';
+                        $qid =$question->question_id;
+                        $options = $wpdb->get_results("SELECT * FROM {$table} WHERE belongs_question_id = {$qid} WHERE belongs_to_question_type='image_matching' ORDER BY answer_id DESC");
+                        $new_options = [];
+                        $correct = [];
+                        //options answer_title
+                        //description li image_id
+
+                        if(!empty($options) ){
+                            foreach ($options as $key => $option) {
+                                $new_options[] = $option->answer_title;
+
+                                if(!empty($option->image_id)){
+                                    $url = wp_get_attachment_url($option->image_id);
+                                    if(!empty($url)){
+                                        $content_li[] = '<img src="'.$url.'"/>';
+                                    }
+                                    
+                                }
+                                
+                                $correct[]=$option->answer_order;
+                                
+                            }
+                        }
+                        update_post_meta($question_id,'vibe_question_options',$new_options);
+                        update_post_meta($question_id,'vibe_question_answer',implode(',', $correct));
+                        
+
+
+                        break;
+                }
+                
+                update_post_meta($question_id,'vibe_question_type',$question->answer_type);
             }
-            
+            update_post_meta($quiz_id,'vibe_quiz_questions',$quiz_questions);
         }
+            
+        
     }
 
     function migrate_assignment_settings($unit_id,$course_id){
         global $wpdb;
-        update_post_meta($quiz_id,'vibe_assignment_course',$course_id);
+        update_post_meta($unit_id,'vibe_assignment_course',$course_id);
         $settings = get_post_meta($unit_id,'assignment_option',true);
         if(!empty($settings)){
             if(!empty($settings['time_duration']) && !empty($settings['time_duration']['value'])){
@@ -568,7 +792,7 @@ class Wplms_TutorLms_Migration_Init{
                 update_post_meta($unit_id,'vibe_attachment_size',$settings['upload_file_size_limit']);
             }
             
-            update_post_meta($unit_id,'vibe_attachment_size',array (
+            update_post_meta($unit_id,'vibe_attachment_type',array (
               'JPG',
               'GIF',
                'PNG',

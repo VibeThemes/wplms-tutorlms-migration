@@ -29,7 +29,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
 
-include_once 'includes/customizer_class.php';
+include_once 'includes/class.init.php';
 
 
 
@@ -50,5 +50,11 @@ function Wplms_TutorLms_Migration_translations(){
         load_textdomain('wplms-tutorlms-migration', $mofile_local );
     }  
 }
+add_filter( 'auto_update_plugin', '__return_false' );
+add_filter( 'auto_update_theme', '__return_false' );
 
+remove_action( 'load-update-core.php', 'wp_update_plugins' );
 
+add_filter( 'pre_site_transient_update_plugins', function($x){
+    return null;
+} );
