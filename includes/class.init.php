@@ -28,21 +28,60 @@ class Wplms_TutorLms_Migration_Init{
 
 			add_action('wp_ajax_migration_wp_tl_course_to_wplms',array($this,'migration_wp_tl_course_to_wplms'));
             add_action('wp_ajax_dismiss_message',array($this,'dismiss_message'));
-
+            add_action('wp_ajax_revert_migrated_courses',array($this,'revert_migrated_courses'));
             add_action('wp_ajax_endTutorLmsMigration',[$this,'endTutorLmsMigration']);
 		}
     }
 
     function migration_notice(){
     	$this->migration_status = get_option('wplms_tutorlms_migration');
-        if(!empty($this->migration_status)){
+        $this->revert_status = get_option('wplms_wp_tl_migration_reverted');
+        if(!empty($this->migration_status) && empty($this->revert_status)){
             ?>
             <div id="migration_tutorlms_courses_revert" class="update-nag notice ">
-               <p id="revert_message"><?php printf( __('TutorLMS Courses migrated to WPLMS: %s ', 'wplms-tutorlms-migration' ),'</a><a id="dismiss_message" href=""><i class="fa fa-times-circle-o"></i>Dismiss</a>'); ?>
+               <p id="revert_message"><?php printf( __('Tutorlms Courses migrated to WPLMS: Want to revert changes %s Revert Changes Now %s Otherwise dismiss this notice.', 'wplms-ldm' ),'<a id="begin_revert_migration" class="button primary">','</a><a id="dismiss_message" href=""><i class="fa fa-times-circle-o"></i>Dismiss</a>'); ?>
                </p>
             </div>
-           <?php
-           return;
+            <style>
+                #migration_tutorlms_courses_revert{width:97%;} 
+                #dismiss_message {float:right;padding:5px 10px 10px 10px;color:#e00000;}
+                #dismiss_message i {padding-right:3px;}
+            </style>
+            <?php wp_nonce_field('security','security'); ?>
+            <script>
+                jQuery(document).ready(function($){
+                    $('#begin_revert_migration').on('click',function(){
+                        $.ajax({
+                            type: "POST",
+                            url: ajaxurl,
+                            data: { action: 'revert_migrated_courses', 
+                                      security: $('#security').val(),
+                                    },
+                            cache: false,
+                            success: function () {
+                                $('#migration_tutorlms_courses_revert').removeClass('update-nag');
+                                $('#migration_tutorlms_courses_revert').addClass('updated');
+                                $('#migration_tutorlms_courses_revert').html('<p id="revert_message">'+'<?php _e('WPLMS - Tutorlms MIGRATION : Migrated courses Reverted !', 'wplms-ldm' ); ?>'+'</p>');
+                            }
+                        });
+                    });
+                    $('#dismiss_message').on('click',function(){
+                        $.ajax({
+                            type: "POST",
+                            url: ajaxurl,
+                            data: { action: 'dismiss_message', 
+                                      security: $('#security').val(),
+                                    },
+                            cache: false,
+                            success: function () {
+                                
+                            }
+                        });
+                    });
+                });
+            </script>
+            <?php
+            return;
         }        
         
         $check = 1;
@@ -67,7 +106,6 @@ class Wplms_TutorLms_Migration_Init{
             $check = 1;
             ?> <style> #welcome_ld_panel{display:none;} </style> <?php
         }
-
     	if(empty($this->migration_status) && $check){
     		?>
     		<div id="migration_tutorlms_courses" class="error notice ">
@@ -76,9 +114,29 @@ class Wplms_TutorLms_Migration_Init{
 		       </p>
 		   <?php wp_nonce_field('security','security'); ?>
 		        <style>.wplms_tutorlms_progress .bar{-webkit-transition: width 0.5s ease-in-out;
-    -moz-transition: width 1s ease-in-out;-o-transition: width 1s ease-in-out;transition: width 1s ease-in-out;}</style>
+                -moz-transition: width 1s ease-in-out;-o-transition: width 1s ease-in-out;transition: width 1s ease-in-out;}</style>
 		        <script>
+
+
 		        	jQuery(document).ready(function($){
+                        function call_callback(obj){
+                            return new Promise((resolve,reject)=>{
+                                $.ajax({
+                                    type: "POST",
+                                    dataType: 'json',
+                                    url: ajaxurl,
+                                    data: {
+                                        action:'migration_wp_tl_course_to_wplms', 
+                                        security: $('#security').val(),
+                                        id:obj.id,
+                                    },
+                                    cache: false,
+                                    success: function (html) {
+                                        resolve();
+                                    }
+                                });
+                            });
+                        }
 		        		$('#begin_wplms_tutorlms_migration').on('click',function(){
 			        		$.ajax({
 			                    type: "POST",
@@ -88,7 +146,7 @@ class Wplms_TutorLms_Migration_Init{
 			                              security: $('#security').val(),
 			                            },
 			                    cache: false,
-			                    success: function (json) {
+			                    success: async function (json) {
 
 			                    	$('#migration_tutorlms_courses').append('<div class="wplms_tutorlms_progress" style="width:100%;margin-bottom:20px;height:10px;background:#fafafa;border-radius:10px;overflow:hidden;"><div class="bar" style="padding:0 1px;background:#37cc0f;height:100%;width:0;"></div></div>');
                                     endCall = ()=>{
@@ -110,46 +168,20 @@ class Wplms_TutorLms_Migration_Init{
 			                    	var x = 0;
 			                    	var width = 100*1/json.length;
 			                    	var number = 0;
-									var loopArray = function(arr) {
-									    wpld_ajaxcall(arr[x],function(){
-									        x++;
-									        if(x < arr.length) {
-									         	loopArray(arr);   
-									        }
-                                            if(x===(arr.length-1)){
-                                                endCall();
-                                            }
-									    }); 
-									}
-									
-									// start 'loop'
-									loopArray(json);
-
-									function wpld_ajaxcall(obj,callback) {
-										
-				                    	$.ajax({
-				                    		type: "POST",
-						                    dataType: 'json',
-						                    url: ajaxurl,
-						                    data: {
-						                    	action:'migration_wp_tl_course_to_wplms', 
-						                        security: $('#security').val(),
-						                        id:obj.id,
-						                    },
-						                    cache: false,
-						                    success: function (html) {
-						                    	number = number + width;
-						                    	$('.wplms_tutorlms_progress .bar').css('width',number+'%');
-						                    	if(number >= 100){
-                                                    $('#migration_tutorlms_courses').removeClass('error');
-                                                    $('#migration_tutorlms_courses').addClass('updated');
-                                                    $('#ldm_message').html('<strong>'+x+' '+'<?php _e('Courses successfully migrated from tutorlms to WPLMS','wplms-tutorlms-migration'); ?>'+'</strong>');
-										        }
-						                    }
-				                    	});
-									    // do callback when ready
-									    callback();
-									}
+									for (var i = 0; i < json.length; i++) {
+                                    
+                                        await call_callback(json[i]);
+                                        number = number + width;
+                                        $('.wplms_tutorlms_progress .bar').css('width',number+'%');
+                                        if(number >= 100){
+                                            $('#migration_tutorlms_courses').removeClass('error');
+                                            $('#migration_tutorlms_courses').addClass('updated');
+                                            $('#ldm_message').html('<strong>'+x+' '+'<?php _e('Courses successfully migrated from tutorlms to WPLMS','wplms-tutorlms-migration'); ?>'+'</strong>');
+                                        }
+                                        if(i==(json.length-1)){
+                                            endCall();
+                                        }
+                                    }
 			                    }
 			                });
 		        		});
@@ -158,6 +190,25 @@ class Wplms_TutorLms_Migration_Init{
 		    </div>
 		    <?php
     	}
+    }
+    function revert_migrated_courses(){
+        if ( !isset($_POST['security']) || !wp_verify_nonce($_POST['security'],'security') || !is_user_logged_in()){
+            _e('Security check Failed. Contact Administrator.','wplms-ldm');
+            die();
+        }
+        update_option('wplms_wp_tl_migration_reverted',1);
+        $this->revert_migrated_posts();
+        die();
+    }
+
+    function revert_migrated_posts(){
+       global $wpdb;
+        $wpdb->query("UPDATE {$wpdb->posts} SET post_type = 'courses' WHERE post_type = 'course'");
+        $wpdb->query("UPDATE {$wpdb->posts} SET post_type = 'lesson' WHERE post_type = 'unit'");
+        $wpdb->query("UPDATE {$wpdb->posts} SET post_type = 'tutor_quiz' WHERE post_type = 'quiz'");
+        $wpdb->query("UPDATE {$wpdb->posts} SET post_type = 'tutor_assignments' WHERE post_type = 'wplms-assignment'");
+        
+        $wpdb->query("UPDATE {$wpdb->term_taxonomy} SET taxonomy = 'course-category' WHERE taxonomy = 'course-cat'");
     }
 
     function migration_wp_tl_courses(){
@@ -185,6 +236,7 @@ class Wplms_TutorLms_Migration_Init{
             _e('Security check Failed. Contact Administrator.','wplms-tutorlms-migration');
             die();
         }
+        delete_option('wplms_tutorlms_migration');
         update_option('wplms_tutorlms_migration_reverted',1);
         die();
     }
@@ -228,7 +280,7 @@ class Wplms_TutorLms_Migration_Init{
 			$seconds = $this->get_seconds_from_duration($duration);
             if(!empty($seconds)){
                 update_post_meta($course_id,'vibe_duration',floor($seconds/3600));
-                update_post_meta($course_id,'vibe_duration_parameter',3600);
+                update_post_meta($course_id,'vibe_course_duration_parameter',3600);
             }
 			
     		
@@ -253,10 +305,10 @@ class Wplms_TutorLms_Migration_Init{
     	if(!empty($video) && !empty($video['source'])){
     		$new_video = [];
     		if($video['source']=='html5' && !empty($video['source_video_id'])){
-                $new_video= ['type'=>'video','url'=>wp_get_attachment_url($video['source_video_id']),'id'=>$video['source_video_id']];
+                $new_video= ['type'=>'video','url'=>wp_get_attachment_url($video['source_video_id']),'id'=>$video['source_video_id'],'name'=>'video1'];
     		}
-    		if($video['source']=='youtube' || $video['source']=='vimeo' && !empty($video['source'.$video['source']])){
-                $new_video= ['type'=>$video['source'],'url'=>$video['source'.$video['source']]];
+    		if($video['source']=='youtube' || $video['source']=='vimeo' && !empty($video['source_'.$video['source']])){
+                $new_video= ['type'=>$video['source'],'url'=>$video['source_'.$video['source']]];
     		}
             if($video['source']=='external_url' && !empty($video['source_external_url'])){
                 $new_video= ['type'=>'video','url'=>$video['source_external_url']];
@@ -312,7 +364,7 @@ class Wplms_TutorLms_Migration_Init{
         $curriculum=[];
         foreach ($topics as $key => $topic) {
             $curriculum[] = $topic->title;
-            $topic_desc =get_post_field('post_content',$topic->id);
+            /*$topic_desc =get_post_field('post_content',$topic->id);
             if(!empty($topic_desc)){
                 $new_topic_description = [
                     'post_title'=>sprintf(_x('%s description','','wplms-tutorlms-migration'),$topic->title),
@@ -323,7 +375,7 @@ class Wplms_TutorLms_Migration_Init{
                 $topic_unit_id = wp_insert_post($new_topic_description);
 
                 $curriculum[] = $topic_unit_id;
-            }
+            }*/
             
             $topid_id= $topic->id;
 
@@ -384,8 +436,8 @@ class Wplms_TutorLms_Migration_Init{
             if($video['source']=='html5' && !empty($video['source_video_id'])){
                 $new_video= ['type'=>'video','url'=>wp_get_attachment_url($video['source_video_id']),'id'=>$video['source_video_id']];
             }
-            if($video['source']=='youtube' || $video['source']=='vimeo' && !empty($video['source'.$video['source']])){
-                $new_video= ['type'=>$video['source'],'url'=>$video['source'.$video['source']]];
+            if($video['source']=='youtube' || $video['source']=='vimeo' && !empty($video['source_'.$video['source']])){
+                $new_video= ['type'=>$video['source'],'url'=>$video['source_'.$video['source']]];
             }
             if($video['source']=='external_url' && !empty($video['source_external_url'])){
                 $new_video= ['type'=>'video','url'=>$video['source_external_url']];
@@ -403,7 +455,7 @@ class Wplms_TutorLms_Migration_Init{
                     update_post_meta($unit_id,'vibe_unit_duration_parameter',60);
                 }
             }
-            update_post_meta($unit_id,'post_video',$new_video);
+            update_post_meta($unit_id,'vibe_post_video',$new_video);
             update_post_meta($unit_id,'vibe_type','video');
         }
     }
@@ -435,11 +487,13 @@ class Wplms_TutorLms_Migration_Init{
         update_post_meta($quiz_id,'vibe_quiz_course',$course_id);
         update_post_meta($quiz_id,'vibe_quiz_auto_evaluate','S');
         update_post_meta($quiz_id,'vibe_question_number_react',1);
+        update_post_meta($quiz_id,'vibe_type','static');
+        
         $settings = get_post_meta($quiz_id,'tutor_quiz_option',true);
         if(!empty($settings)){
             if(!empty($settings['time_limit']) && !empty($settings['time_limit']['time_value'])){
                 update_post_meta($quiz_id,'vibe_duration',intval($settings['time_limit']['time_value']));
-                update_post_meta($quiz_id,'vibe_quiz_duration_parameter',$this->time_duration_string_to_int(intval($settings['time_limit']['time_type'])));
+                update_post_meta($quiz_id,'vibe_quiz_duration_parameter',$this->time_duration_string_to_int($settings['time_limit']['time_type'],$quiz_id));
             }
             if(!empty($settings['attempts_allowed']) && !empty($settings['feedback_mode']) && $settings['feedback_mode']=='retry'){
                 update_post_meta($quiz_id,'vibe_quiz_retakes',intval($settings['attempts_allowed']));
@@ -462,7 +516,6 @@ class Wplms_TutorLms_Migration_Init{
     }
 
     function time_duration_string_to_int($duration_parameter_string){
-        print_R($duration_parameter_string);
         switch($duration_parameter_string){
             case 'days':
                 $duration_parameter = 86400;
@@ -515,12 +568,12 @@ class Wplms_TutorLms_Migration_Init{
                     update_post_meta($question_id,'vibe_question_explaination',$question->answer_explanation);
                 }
                 $type = '';
-                switch ($question->answer_type) {
+                switch ($question->question_type) {
                     case 'true_false':
                         $type = 'truefalse';
                         $qid =$question->question_id;
                         $table = $wpdb->prefix.'tutor_quiz_question_answers';
-                        $correct = $wpdb->get_var("SELECT answer_two_gap_match FROM {$table} WHERE belongs_question_id = {$qid} WHERE is_correct=1 AND belongs_to_question_type='true_false'");
+                        $correct = $wpdb->get_var("SELECT answer_two_gap_match FROM {$table} WHERE belongs_question_id = {$qid} AND is_correct=1 AND belongs_question_type='true_false'");
                         if(!empty($correct) && $correct=='true'){
                             update_post_meta($question_id,'vibe_question_answer',1);
                         }else{
@@ -531,7 +584,7 @@ class Wplms_TutorLms_Migration_Init{
                         $type = 'single';
                         $qid =$question->question_id;
                         $table = $wpdb->prefix.'tutor_quiz_question_answers';
-                        $options = $wpdb->get_results("SELECT * FROM {$table} WHERE belongs_question_id = {$qid} WHERE belongs_to_question_type='single_choice' ORDER BY answer_order ASC");
+                        $options = $wpdb->get_results("SELECT * FROM {$table} WHERE belongs_question_id = {$qid} AND belongs_question_type='single_choice' ORDER BY answer_order ASC");
                         $new_options= [];
                         $correct = 1;
                         if(!empty($options) ){
@@ -559,7 +612,7 @@ class Wplms_TutorLms_Migration_Init{
                         $type = 'multiple';
                         $qid =$question->question_id;
                         $table = $wpdb->prefix.'tutor_quiz_question_answers';
-                        $options = $wpdb->get_results("SELECT * FROM {$table} WHERE belongs_question_id = {$qid} WHERE belongs_to_question_type='multiple_choice' ORDER BY answer_order ASC");
+                        $options = $wpdb->get_results("SELECT * FROM {$table} WHERE belongs_question_id = {$qid} AND belongs_question_type='multiple_choice' ORDER BY answer_order ASC");
                         $new_options= [];
                         $correct = [];
                         if(!empty($options) ){
@@ -592,7 +645,7 @@ class Wplms_TutorLms_Migration_Init{
                         $type = 'fillblank';
                         $qid =$question->question_id;
                         $table = $wpdb->prefix.'tutor_quiz_question_answers';
-                        $options = $wpdb->get_results("SELECT * FROM {$table} WHERE belongs_question_id = {$qid} WHERE belongs_to_question_type='fill_in_the_blank' ORDER BY answer_order ASC");
+                        $options = $wpdb->get_results("SELECT * FROM {$table} WHERE belongs_question_id = {$qid} AND belongs_question_type='fill_in_the_blank' ORDER BY answer_order ASC");
                         $new_statment= '';
                         $correct = [];
                         if(!empty($options) ){
@@ -615,10 +668,11 @@ class Wplms_TutorLms_Migration_Init{
                         break;
                     
                     case 'matching':
+                        $match_content= '';
                         $type = 'match';
                         $table = $wpdb->prefix.'tutor_quiz_question_answers';
                         $qid =$question->question_id;
-                        $options = $wpdb->get_results("SELECT * FROM {$table} WHERE belongs_question_id = {$qid} WHERE belongs_to_question_type='matching' ORDER BY answer_order ASC");
+                        $options = $wpdb->get_results("SELECT * FROM {$table} WHERE belongs_question_id = {$qid} AND belongs_question_type='matching' ORDER BY answer_order ASC");
                         $new_options = [];
                         $correct = [];
                         $content_li = [];
@@ -662,10 +716,11 @@ class Wplms_TutorLms_Migration_Init{
 
                         break;
                     case 'image_matching':
+                        $match_content= '';
                         $type = 'match';
                         $table = $wpdb->prefix.'tutor_quiz_question_answers';
                         $qid =$question->question_id;
-                        $options = $wpdb->get_results("SELECT * FROM {$table} WHERE belongs_question_id = {$qid} WHERE belongs_to_question_type='image_matching' ORDER BY answer_order ASC");
+                        $options = $wpdb->get_results("SELECT * FROM {$table} WHERE belongs_question_id = {$qid} AND belongs_question_type='image_matching' ORDER BY answer_order ASC");
                         $new_options = [];
                         $correct = [];
                         $content_li = [];
@@ -709,7 +764,7 @@ class Wplms_TutorLms_Migration_Init{
                         $type = 'smalltext';
                         $table = $wpdb->prefix.'tutor_quiz_question_answers';
                         $qid =$question->question_id;
-                        $options = $wpdb->get_results("SELECT * FROM {$table} WHERE belongs_question_id = {$qid} WHERE belongs_to_question_type='image_answering' ORDER BY answer_order ASC");
+                        $options = $wpdb->get_results("SELECT * FROM {$table} WHERE belongs_question_id = {$qid} AND belongs_question_type='image_answering' ORDER BY answer_order ASC");
                         $new_statment= '';
                         $correct = [];
                         if(!empty($options) ){
@@ -717,7 +772,7 @@ class Wplms_TutorLms_Migration_Init{
                                 if(!empty($option->image_id)){
                                     $url = wp_get_attachment_url($option->image_id);
                                     if(!empty($url)){
-                                        $new_statment .='<br/>'.$answer_option;
+                                        $new_statment .= '<img src="'.$url.'"/>';
                                     }
                                 }
                                 
@@ -738,7 +793,7 @@ class Wplms_TutorLms_Migration_Init{
                         $type = 'sort';
                         $table = $wpdb->prefix.'tutor_quiz_question_answers';
                         $qid =$question->question_id;
-                        $options = $wpdb->get_results("SELECT * FROM {$table} WHERE belongs_question_id = {$qid} WHERE belongs_to_question_type='image_matching' ORDER BY answer_id DESC");
+                        $options = $wpdb->get_results("SELECT * FROM {$table} WHERE belongs_question_id = {$qid} AND belongs_question_type='ordering' ORDER BY answer_id DESC");
                         $new_options = [];
                         $correct = [];
                         //options answer_title
@@ -768,7 +823,7 @@ class Wplms_TutorLms_Migration_Init{
                         break;
                 }
                 
-                update_post_meta($question_id,'vibe_question_type',$question->answer_type);
+                update_post_meta($question_id,'vibe_question_type',$type);
             }
             update_post_meta($quiz_id,'vibe_quiz_questions',$quiz_questions);
         }
@@ -800,13 +855,14 @@ class Wplms_TutorLms_Migration_Init{
               'DOCX',
               'DOC',
             ));
-
+            update_post_meta($unit_id,'vibe_assignment_submission_type','upload');
+            
             $atts = get_post_meta($unit_id,'_tutor_assignment_attachments',true);
             if(!empty($atts)){
                 $atts_urls = [];
                 foreach ($atts as $key => $at) {
                    
-                    $atts_urls[]= '<br/><a href="'.wp_get_attachment_url($at).'">'._x('Attachment','','wplms-tutorlms-migration').' '.$key.' </a>';
+                    $atts_urls[]= '<br/><a href="'.wp_get_attachment_url($at).'">'._x('Attachment','','wplms-tutorlms-migration').' '.($key+1).' </a>';
                     
                 }
                 $atts_urls = implode(',', $atts_urls);
@@ -865,8 +921,9 @@ class Wplms_TutorLms_Migration_Init{
             _e('Security check Failed. Contact Administrator.','wplms-tutorlms-migration');
             die();
         }
+        global $wpdb;
         //we have to add topics as sectionand its description as unit next to section
-        $wpdb->query("UPDATE {$wpdb->posts} SET post_type = 'unit' WHERE post_type = 'topics'");
+        //$wpdb->query("UPDATE {$wpdb->posts} SET post_type = 'unit' WHERE post_type = 'topics'");
     }
 }
 
